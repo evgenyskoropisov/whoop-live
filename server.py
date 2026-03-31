@@ -424,17 +424,27 @@ const activityBandsPlugin = {
       if (isNaN(x1) || isNaN(x2)) return;
 
       c.save();
+      // Slightly inset each band by 1px so adjacent bands have a visible gap
       c.fillStyle = act.color + "0.13)";
-      c.fillRect(x1, chartArea.top, x2 - x1, chartArea.bottom - chartArea.top);
-      // Border lines
-      c.strokeStyle = act.color + "0.35)";
+      c.fillRect(x1 + 1, chartArea.top, x2 - x1 - 2, chartArea.bottom - chartArea.top);
+      // Left border (strong)
+      c.strokeStyle = act.color + "0.7)";
+      c.lineWidth = 2;
+      c.beginPath(); c.moveTo(x1 + 1, chartArea.top); c.lineTo(x1 + 1, chartArea.bottom); c.stroke();
+      // Right border (faint)
+      c.strokeStyle = act.color + "0.25)";
       c.lineWidth = 1;
-      c.beginPath(); c.moveTo(x1, chartArea.top); c.lineTo(x1, chartArea.bottom); c.stroke();
-      c.beginPath(); c.moveTo(x2, chartArea.top); c.lineTo(x2, chartArea.bottom); c.stroke();
-      // Label
-      c.fillStyle = act.color + "0.85)";
+      c.beginPath(); c.moveTo(x2 - 1, chartArea.top); c.lineTo(x2 - 1, chartArea.bottom); c.stroke();
+      // Label with background pill
+      const label = act.name;
       c.font = "bold 10px -apple-system, sans-serif";
-      c.fillText(act.name, x1 + 6, chartArea.top + 14);
+      const tw = c.measureText(label).width;
+      c.fillStyle = act.color + "0.18)";
+      c.beginPath();
+      c.roundRect(x1 + 6, chartArea.top + 4, tw + 10, 17, 4);
+      c.fill();
+      c.fillStyle = act.color + "0.9)";
+      c.fillText(label, x1 + 11, chartArea.top + 15);
       c.restore();
     });
   }
