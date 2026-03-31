@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+build/
+dist/
+*.egg-info/
+AppIcon.icns
+AppIcon.iconset/
+.env
+.DS_Store
