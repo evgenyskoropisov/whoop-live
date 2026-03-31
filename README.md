@@ -4,9 +4,9 @@ A real-time heart rate monitor for macOS that connects directly to your WHOOP st
 
 ## Preview
 
-<img src="assets/whoop-live-preview.svg" alt="WHOOP Live app preview" width="920">
+<img src="assets/whoop-live-screenshot.png" alt="WHOOP Live app screenshot" width="560">
 
-_Illustrative preview of the current macOS app UI._
+_Real screenshot of the current macOS app UI._
 
 ## Features
 
