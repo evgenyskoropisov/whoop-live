@@ -116,6 +116,9 @@ DASHBOARD = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>WHOOP Live</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
@@ -347,6 +350,7 @@ const allData   = [];   // bpm values
 let windowMinutes = 5;
 let sessionStart  = null;
 let lastTs        = null;
+let hoveredBandId = null;
 
 // ── Activities ──────────────────────────────────────────────────────────────────
 const activities   = [];       // completed
@@ -363,6 +367,11 @@ const PALETTE = [
 ];
 let paletteIdx = 0;
 function nextColor() { return PALETTE[paletteIdx++ % PALETTE.length]; }
+function getActivityId(act) {
+  if (!act) return null;
+  if (act.startTs) return "act-" + act.startTs;
+  return [act.name, act.startTime, act.endTime || "live"].join("|");
+}
 
 // ── Zones ───────────────────────────────────────────────────────────────────────
 const ZONES = [
@@ -384,7 +393,7 @@ function setZoneBars(z) {
 // ── Chart with activity background bands ─────────────────────────────────────
 const ctx = document.getElementById("chart").getContext("2d");
 
-// Custom plugin to draw activity bands behind the line
+// Custom plugin to draw activity bands behind the line and reveal labels on hover
 const activityBandsPlugin = {
   id: "activityBands",
   beforeDatasetsDraw(chart) {
@@ -395,57 +404,68 @@ const activityBandsPlugin = {
     if (!visibleLabels || visibleLabels.length === 0) return;
 
     const toDraw = [...activities];
-    if (activeActivity) {
-      toDraw.push({
-        ...activeActivity,
-        endTime: allLabels[allData.length - 1] || visibleLabels[visibleLabels.length - 1],
-      });
-    }
+    if (activeActivity) toDraw.push(activeActivity);
 
     toDraw.forEach(act => {
       if (!act.startTime) return;
-      const endTime = act.endTime || visibleLabels[visibleLabels.length - 1];
+      const endTime = act === activeActivity
+        ? (allLabels[allData.length - 1] || visibleLabels[visibleLabels.length - 1])
+        : (act.endTime || visibleLabels[visibleLabels.length - 1]);
 
-      // Find nearest indices in visible labels
-      let si = 0;
+      let si = visibleLabels.length - 1;
       for (let i = 0; i < visibleLabels.length; i++) {
         if (visibleLabels[i] >= act.startTime) { si = i; break; }
-        si = visibleLabels.length - 1;
       }
-      let ei = visibleLabels.length - 1;
+      let ei = 0;
       for (let i = visibleLabels.length - 1; i >= 0; i--) {
         if (visibleLabels[i] <= endTime) { ei = i; break; }
       }
       if (si > ei) return;
 
-      // Chart.js 4: getPixelForValue on category scale takes numeric index
       const x1 = xScale.getPixelForValue(si);
       const x2 = xScale.getPixelForValue(ei);
       if (isNaN(x1) || isNaN(x2)) return;
 
+      const left = Math.min(x1, x2);
+      const right = Math.max(x1, x2);
+      const bandWidth = Math.max(0, right - left);
+
       c.save();
-      // Slightly inset each band by 1px so adjacent bands have a visible gap
       c.fillStyle = act.color + "0.13)";
-      c.fillRect(x1 + 1, chartArea.top, x2 - x1 - 2, chartArea.bottom - chartArea.top);
-      // Left border (strong)
+      c.fillRect(left + 1, chartArea.top, Math.max(0, bandWidth - 2), chartArea.bottom - chartArea.top);
       c.strokeStyle = act.color + "0.7)";
       c.lineWidth = 2;
-      c.beginPath(); c.moveTo(x1 + 1, chartArea.top); c.lineTo(x1 + 1, chartArea.bottom); c.stroke();
-      // Right border (faint)
+      c.beginPath(); c.moveTo(left + 1, chartArea.top); c.lineTo(left + 1, chartArea.bottom); c.stroke();
       c.strokeStyle = act.color + "0.25)";
       c.lineWidth = 1;
-      c.beginPath(); c.moveTo(x2 - 1, chartArea.top); c.lineTo(x2 - 1, chartArea.bottom); c.stroke();
-      // Label with background pill
-      const label = act.name;
-      c.font = "bold 10px -apple-system, sans-serif";
-      const tw = c.measureText(label).width;
-      c.fillStyle = act.color + "0.18)";
-      c.beginPath();
-      c.roundRect(x1 + 6, chartArea.top + 4, tw + 10, 17, 4);
-      c.fill();
-      c.fillStyle = act.color + "0.9)";
-      c.fillText(label, x1 + 11, chartArea.top + 15);
+      c.beginPath(); c.moveTo(right - 1, chartArea.top); c.lineTo(right - 1, chartArea.bottom); c.stroke();
+
+      if (hoveredBandId === getActivityId(act)) {
+        const label = act.name || "Activity";
+        c.font = "600 10px -apple-system, sans-serif";
+        const textWidth = c.measureText(label).width;
+        const pillWidth = textWidth + 14;
+        const pillHeight = 18;
+        const inset = 6;
+        if (bandWidth >= pillWidth + inset * 2) {
+          const pillX = Math.max(left + inset, Math.min(right - pillWidth - inset, left + inset));
+          const pillY = chartArea.top + 6;
+          c.fillStyle = "rgba(7,8,15,0.88)";
+          c.strokeStyle = act.color + "0.55)";
+          c.lineWidth = 1;
+          c.beginPath();
+          c.roundRect(pillX, pillY, pillWidth, pillHeight, 6);
+          c.fill();
+          c.stroke();
+          c.fillStyle = act.color + "0.95)";
+          c.textBaseline = "middle";
+          c.fillText(label, pillX + 7, pillY + pillHeight / 2);
+        }
+      }
       c.restore();
+
+      act._endTime = endTime;
+      act._x1 = left; act._x2 = right;
     });
   }
 };
@@ -492,6 +512,77 @@ const chart = new Chart(ctx, {
         suggestedMin: 45, suggestedMax: 120,
       }
     }
+  }
+});
+
+// ── Activity band hover tooltip ─────────────────────────────────────────────────
+const bandTooltip = document.createElement("div");
+bandTooltip.style.cssText = `
+  position: fixed; display: none; pointer-events: none; z-index: 100;
+  background: #0e0f1a; border: 1px solid #181929; border-radius: 10px;
+  padding: 8px 12px; font-size: 12px; font-family: -apple-system, sans-serif;
+  color: #e0e3ff; white-space: nowrap; box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+`;
+document.body.appendChild(bandTooltip);
+
+document.getElementById("chart").addEventListener("mousemove", (e) => {
+  const rect = e.target.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const chartArea = chart.chartArea;
+  if (!chartArea) return;
+  if (my < chartArea.top || my > chartArea.bottom) {
+    bandTooltip.style.display = "none";
+    if (hoveredBandId !== null) {
+      hoveredBandId = null;
+      chart.draw();
+    }
+    return;
+  }
+
+  const allBands = [...activities];
+  if (activeActivity) allBands.push(activeActivity);
+
+  let found = null;
+  for (const act of allBands) {
+    if (act._x1 !== undefined && mx >= act._x1 && mx <= act._x2) { found = act; break; }
+  }
+
+  const nextHoveredBandId = getActivityId(found);
+  if (nextHoveredBandId !== hoveredBandId) {
+    hoveredBandId = nextHoveredBandId;
+    chart.draw();
+  }
+
+  if (found) {
+    const color = found.color + "0.9)";
+    const avg  = found.avg  ?? (activeActivity === found ? "live" : "--");
+    const min  = found.min  ?? "--";
+    const max  = found.max  ?? "--";
+    const dur  = found.durStr ?? "ongoing";
+    bandTooltip.innerHTML =
+      `<span style="color:${color};font-weight:600">${found.name}</span>` +
+      `<span style="color:#44476a;margin:0 6px">·</span>` +
+      `${found.startTime} → ${found._endTime || found.endTime || "now"}` +
+      `<span style="color:#44476a;margin:0 6px">·</span>${dur}<br>` +
+      `<span style="color:#44476a;font-size:10px">avg </span><span style="color:${color}">${avg}</span>` +
+      `<span style="color:#44476a;font-size:10px;margin-left:8px">min </span><span style="color:${color}">${min}</span>` +
+      `<span style="color:#44476a;font-size:10px;margin-left:8px">peak </span><span style="color:${color}">${max}</span>`;
+    bandTooltip.style.display = "block";
+    bandTooltip.style.left = (e.clientX + 12) + "px";
+    bandTooltip.style.top  = (e.clientY - 20) + "px";
+    chart.canvas.style.cursor = "pointer";
+  } else {
+    bandTooltip.style.display = "none";
+    chart.canvas.style.cursor = "default";
+  }
+});
+document.getElementById("chart").addEventListener("mouseleave", () => {
+  bandTooltip.style.display = "none";
+  chart.canvas.style.cursor = "default";
+  if (hoveredBandId !== null) {
+    hoveredBandId = null;
+    chart.draw();
   }
 });
 
@@ -637,58 +728,61 @@ setInterval(() => {
     Math.floor(s/60) + ":" + String(s%60).padStart(2,"0");
 }, 1000);
 
-// ── Poll server ──────────────────────────────────────────────────────────────────
+function renderDashboardData(d) {
+  const dot   = document.getElementById("dot");
+  const stTx  = document.getElementById("status-text");
+  const errEl = document.getElementById("err");
+
+  if (d.error) {
+    errEl.style.display = "block"; errEl.textContent = d.error;
+    dot.className = "dot error"; stTx.textContent = "Error";
+  } else {
+    errEl.style.display = "none";
+    dot.className    = d.status === "ok" ? "dot ok" : "dot scanning";
+    stTx.textContent = d.status === "ok"
+      ? (d.device_name || "Whoop") + " — LIVE"
+      : d.status === "connecting" ? "Connecting..." : "Scanning...";
+  }
+
+  if (d.heart_rate !== null && d.updated_at !== "--" && d.updated_at !== lastTs) {
+    lastTs = d.updated_at;
+    if (!sessionStart) sessionStart = Date.now();
+
+    allLabels.push(d.updated_at);
+    allData.push(d.heart_rate);
+
+    const hr   = d.heart_rate;
+    const zone = getZone(hr);
+    const hrEl = document.getElementById("hr");
+    hrEl.textContent = hr;
+    hrEl.style.color = ZONES[zone].color;
+    document.getElementById("beat-el")
+      .style.setProperty("--bpm-interval", Math.max(0.4, 60/hr) + "s");
+    setZoneBars(zone);
+
+    document.getElementById("s-min").textContent = Math.min(...allData);
+    document.getElementById("s-max").textContent = Math.max(...allData);
+    document.getElementById("s-avg").textContent =
+      Math.round(allData.reduce((a,b)=>a+b,0)/allData.length);
+
+    updateChart();
+  }
+
+  document.getElementById("footer").textContent =
+    d.updated_at !== "--"
+      ? "Updated: " + d.updated_at + "  ·  " + allData.length + " points"
+      : "Waiting for data...";
+}
+
+window.receiveData = renderDashboardData;
+
 async function refresh() {
   try {
-    const res = await fetch("/api/data");
-    if (!res.ok) throw new Error();
+    const res = await fetch("/api/data", { cache: "no-store" });
+    if (!res.ok) throw new Error("Bad response");
     const d = await res.json();
-
-    const dot   = document.getElementById("dot");
-    const stTx  = document.getElementById("status-text");
-    const errEl = document.getElementById("err");
-
-    if (d.error) {
-      errEl.style.display = "block"; errEl.textContent = d.error;
-      dot.className = "dot error"; stTx.textContent = "Error";
-    } else {
-      errEl.style.display = "none";
-      dot.className    = d.status === "ok" ? "dot ok" : "dot scanning";
-      stTx.textContent = d.status === "ok"
-        ? (d.device_name || "Whoop") + " — LIVE"
-        : d.status === "connecting" ? "Connecting..." : "Scanning...";
-    }
-
-    if (d.heart_rate !== null && d.updated_at !== "--" && d.updated_at !== lastTs) {
-      lastTs = d.updated_at;
-      if (!sessionStart) sessionStart = Date.now();
-
-      allLabels.push(d.updated_at);
-      allData.push(d.heart_rate);
-
-      const hr   = d.heart_rate;
-      const zone = getZone(hr);
-      const hrEl = document.getElementById("hr");
-      hrEl.textContent = hr;
-      hrEl.style.color = ZONES[zone].color;
-      document.getElementById("beat-el")
-        .style.setProperty("--bpm-interval", Math.max(0.4, 60/hr) + "s");
-      setZoneBars(zone);
-
-      document.getElementById("s-min").textContent = Math.min(...allData);
-      document.getElementById("s-max").textContent = Math.max(...allData);
-      document.getElementById("s-avg").textContent =
-        Math.round(allData.reduce((a,b)=>a+b,0)/allData.length);
-
-      updateChart();
-    }
-
-    document.getElementById("footer").textContent =
-      d.updated_at !== "--"
-        ? "Updated: " + d.updated_at + "  ·  " + allData.length + " points"
-        : "Waiting for data...";
-
-  } catch(e) {
+    renderDashboardData(d);
+  } catch (e) {
     document.getElementById("dot").className = "dot error";
     document.getElementById("status-text").textContent = "No connection to server";
   }
@@ -703,28 +797,49 @@ setInterval(refresh, 1000);
 
 @app.route("/")
 def index():
-    return Response(DASHBOARD, content_type="text/html; charset=utf-8")
+    resp = Response(DASHBOARD, content_type="text/html; charset=utf-8")
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
 
 @app.route("/api/data")
 def api_data():
     with _lock:
-        return jsonify(dict(state))
+        resp = jsonify(dict(state))
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        resp.headers["Pragma"] = "no-cache"
+        resp.headers["Expires"] = "0"
+        return resp
 
 
 def run_flask():
     app.run(host="127.0.0.1", port=8765, debug=False, use_reloader=False)
 
 
+def push_data_loop(window_ref):
+    """Push HR data directly into the webview via JS instead of fetch."""
+    import json, time as _t
+    while True:
+        _t.sleep(1)
+        try:
+            with _lock:
+                d = dict(state)
+            js = f"typeof window.receiveData === 'function' && window.receiveData({json.dumps(d)})"
+            if window_ref[0]:
+                window_ref[0].evaluate_js(js)
+        except Exception as e:
+            print(f"[js push] {e}")
+
+
 if __name__ == "__main__":
-    # BLE thread
     ble_t = threading.Thread(target=ble_thread, daemon=True)
     ble_t.start()
 
-    # Flask thread
     flask_t = threading.Thread(target=run_flask, daemon=True)
     flask_t.start()
 
-    # Wait for Flask to be ready
     import time as _time
     import urllib.request as _req
     for _ in range(20):
@@ -734,25 +849,34 @@ if __name__ == "__main__":
         except Exception:
             _time.sleep(0.3)
 
-    # Open native window via pywebview
+    app_url = f"http://127.0.0.1:8765/?_ts={int(_time.time())}"
+
     try:
         import webview
-        window = webview.create_window(
+        window_ref = [None]
+        push_started = [False]
+
+        def on_loaded():
+            if push_started[0]:
+                return
+            push_started[0] = True
+            push_t = threading.Thread(target=push_data_loop, args=(window_ref,), daemon=True)
+            push_t.start()
+
+        window_ref[0] = webview.create_window(
             title="WHOOP Live",
-            url="http://127.0.0.1:8765",
+            url=app_url,
             width=900,
             height=800,
             min_size=(700, 600),
             resizable=True,
         )
+        window_ref[0].events.loaded += on_loaded
         webview.start(debug=False)
     except ImportError:
-        # Fallback: open in browser if pywebview not installed
         import webbrowser
-        print("\n⚠  pywebview not found, opening in browser instead.")
-        print("   Run:  pip install pywebview\n")
-        webbrowser.open("http://127.0.0.1:8765")
-        # Keep main thread alive
+        print("\n⚠  pywebview not found, opening in browser instead.\n")
+        webbrowser.open(app_url)
         import time as _t
         while True:
             _t.sleep(1)
