@@ -2,6 +2,12 @@
 
 A real-time heart rate monitor for macOS that connects directly to your WHOOP strap via Bluetooth — no login, no API, no delays.
 
+## Preview
+
+<img src="assets/whoop-live-preview.svg" alt="WHOOP Live app preview" width="920">
+
+_Illustrative preview of the current macOS app UI._
+
 ## Features
 
 - **Live heart rate** via Bluetooth BLE, updates every second
